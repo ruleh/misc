@@ -11,7 +11,7 @@ rsync -av $ORIG/ $DEST
 rsync -avz $ORIG/ $DEST
 
 #tar
-cd $ORIF
+cd $ORIG
 bsdtar cf - . | 
 	pv -trab -B 500M |
 	 (cd $DEST && bsdtar xpSf -)
