@@ -1,0 +1,3 @@
+sed -e 's/[a-z] /&SPACE /g' -e 's/[a-z]/& /g' -e 's/  / /g'
+sed -e 's/[a-z] /&SPACE /g' -e 's/[a-z]/& /g' -e 's/  / /g' -e 's/SPACE ENTER/ENTER/g'
+

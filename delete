@@ -1,0 +1,17 @@
+#delete files in a directory
+export DELDIR=
+export TMPDIR=tmp
+
+#rm
+rm -rf ./$DELDIR
+
+#rsync
+mkdir $TMPDIR
+rsync -a --delete $TMPDIR/ $DELDIR/
+rm $TMPDIR
+
+#perl
+cd $DELDIR
+perl -e 'for(<*>){((stat)[9]<(unlink))}'
+cd ..
+rm $DELDIR

@@ -1,0 +1,5 @@
+[ESC][F1][F2][F3][INFO][DEL]
+[TAB][F4][F5][F6][MC:[CTRL][ALT][DEL]:ctl-alt-del][MC:{{M/d/yyyy}}]
+[CAPS][F7][F8][F9][SYSRQ][MC:{{h:mm a}}]
+[INSERT][F10][F11][F12][SCRLCK][MC:find -iname ]
+[Lock][CTRL][SPACE][ALT][NUMLCK][ENTER]

@@ -1,0 +1,12 @@
+ui_print("Enabling Journaling..");
+ui_print("Extracting tools...");
+mount("ext4", "EMMC", "/dev/block/stl12", "/system");
+mount("ext4", "EMMC", "/dev/block/stl13", "/data");
+mount("ext4", "EMMC", "/dev/block/stl14", "/cache");
+package_extract_file("tools/tune2fs", "/data/tune2fs");
+package_extract_file("tools/enablejournal", "/data/enablejournal");
+set_perm(0, 0, 0755, "/data/tune2fs");
+set_perm(0, 0, 0755, "/data/enablejournal");
+run_program("/sbin/busybox", "sh", "/data/enablejournal");
+ui_print("Journaling is enabled...");
+ui_print("Please Reboot");

@@ -1,0 +1,32 @@
+#!/bin/sh
+echo ***************Log Start***************
+mkdir /sdcard/tmp
+cp /data/tune2fs /sdcard/tmp
+cp /data/enablejournal /sdcard/tmp
+/sbin/busybox mount -o remount,rw rootfs /
+/sbin/busybox rm /sdcard/enablejournal.log
+/sbin/busybox mkdir /etc
+cat /proc/mounts  > /etc/mtab
+/sbin/busybox mount -o remount,ro rootfs /
+echo ***************Begin System Partition***************
+/sbin/busybox umount -l /system
+/sdcard/tmp/tune2fs -O +has_journal -c 5 -i 5d -m 0 -o journal_data_ordered /dev/block/stl12
+fsck.ext4 -Dfy /dev/block/stl14
+/sbin/busybox mount -t ext4 -o nosuid,nodev,noatime,nodiratime,barrier=0,nobh,data=ordered,noauto_da_alloc /dev/block/stl14 /system
+echo ***************System Partition Done***************
+# Cache partition
+echo ***************Begin Cache Partition***************
+/sbin/busybox umount -l /cache
+/sdcard/tmp/tune2fs -O +has_journal -c 100 -i 100d -m 0 -o journal_data_writeback /dev/block/stl14
+fsck.ext4 -Dfy /dev/block/stl14
+/sbin/busybox mount -t ext4 -o nosuid,nodev,noatime,nodiratime,barrier=0,nobh,data=ordered,noauto_da_alloc /dev/block/stl14 /cache
+echo ***************Cache Partition Done***************
+# Data partition
+echo ***************Begin Data Partion***************
+/sbin/busybox umount -l /data
+/sdcard/tmp/tune2fs -O +has_journal -c 5 -i 5d -m 0 -o journal_data_ordered /dev/block/stl13
+fsck.ext4 -Dfy /dev/block/stl13
+/sbin/busybox mount -t ext4 -o nosuid,nodev,noatime,nodiratime,barrier=0,nobh,data=ordered,noauto_da_alloc /dev/block/stl13 /data
+sync
+echo ***************Data Partion Done***************
+echo ***************Finished Journaling Partions***************

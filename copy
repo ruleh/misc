@@ -1,0 +1,17 @@
+#copy files from one directory into another one
+export ORIG=
+export DEST=
+
+#cp
+cp -al $ORIG/* -t $DEST
+cp -alr $ORIG/* -t $DEST
+
+#rsync
+rsync -av $ORIG/ $DEST
+rsync -avz $ORIG/ $DEST
+
+#tar
+cd $ORIF
+bsdtar cf - . | 
+	pv -trab -B 500M |
+	 (cd $DEST && bsdtar xpSf -)
