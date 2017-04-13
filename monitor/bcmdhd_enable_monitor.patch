@@ -21,28 +21,6 @@ index 24f30d7c..5c115cbc 100644
  
  #ifdef BCMWAPI_WPI
  /* these items should evetually go into wireless.h of the linux system headfile dir */
-@@ -1335,16 +1335,16 @@ static chanspec_t wl_cfg80211_get_shared_freq(struct wiphy *wiphy)
- static bcm_struct_cfgdev *
- wl_cfg80211_add_monitor_if(char *name)
- {
--#if defined(WL_ENABLE_P2P_IF) || defined(WL_CFG80211_P2P_DEV_IF)
--	WL_INFORM(("wl_cfg80211_add_monitor_if: No more support monitor interface\n"));
--	return ERR_PTR(-EOPNOTSUPP);
--#else
-+//#if defined(WL_ENABLE_P2P_IF) || defined(WL_CFG80211_P2P_DEV_IF)
-+//	WL_INFORM(("wl_cfg80211_add_monitor_if: No more support monitor interface\n"));
-+//	return ERR_PTR(-EOPNOTSUPP);
-+//#else
- 	struct net_device* ndev = NULL;
- 
- 	dhd_add_monitor(name, &ndev);
- 	WL_INFORM(("wl_cfg80211_add_monitor_if net device returned: 0x%p\n", ndev));
- 	return ndev_to_cfgdev(ndev);
--#endif /* WL_ENABLE_P2P_IF || WL_CFG80211_P2P_DEV_IF */
-+//#endif /* WL_ENABLE_P2P_IF || WL_CFG80211_P2P_DEV_IF */
- }
- 
- static bcm_struct_cfgdev *
 @@ -1727,6 +1727,8 @@ wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_device *ndev,
  	s32 ap = 0;
  	s32 infra = 0;
