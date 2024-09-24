@@ -1,0 +1,404 @@
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index d4cc5fa92341..1e9cb1538eb6 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -530,6 +530,28 @@ static int brcmf_vif_add_validate(struct brcmf_cfg80211_info *cfg,
+ 	return cfg80211_check_combinations(cfg->wiphy, &params);
+ }
+ 
++static int brcmf_set_monitor(struct brcmf_cfg80211_info *cfg)
++{
++	struct brcmf_cfg80211_vif *pos;
++	struct brcmf_if *ifp = brcmf_get_ifp(cfg->pub, 0);
++	struct iface_combination_params params = {
++		.num_different_channels = 1,
++	};
++	s32 mon;
++	s32 err = 0;
++
++	list_for_each_entry(pos, &cfg->vif_list, list)
++		params.iftype_num[pos->wdev.iftype]++;
++
++	mon = params.iftype_num[NL80211_IFTYPE_MONITOR] ? 2 : 0;
++
++	err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_SET_MONITOR, mon);
++	if (err)
++		brcmf_err("failed to set monitor mode err=%d\n", err);
++
++	return err;
++}
++
+ static void convert_key_from_CPU(struct brcmf_wsec_key *key,
+ 				 struct brcmf_wsec_key_le *key_le)
+ {
+@@ -826,7 +848,8 @@ struct wireless_dev *brcmf_apsta_add_vif(struct wiphy *wiphy, const char *name,
+ 	struct brcmf_cfg80211_vif *vif;
+ 	int err;
+ 
+-	if (type != NL80211_IFTYPE_STATION && type != NL80211_IFTYPE_AP)
++	if (type != NL80211_IFTYPE_STATION && type != NL80211_IFTYPE_AP &&
++	    type != NL80211_IFTYPE_MONITOR)
+ 		return ERR_PTR(-EINVAL);
+ 
+ 	if (brcmf_cfg80211_vif_event_armed(cfg))
+@@ -867,6 +890,9 @@ struct wireless_dev *brcmf_apsta_add_vif(struct wiphy *wiphy, const char *name,
+ 		goto fail;
+ 	}
+ 
++	if (type == NL80211_IFTYPE_MONITOR)
++		ifp->ndev->type = ARPHRD_IEEE80211_RADIOTAP;
++
+ 	strscpy(ifp->ndev->name, name, sizeof(ifp->ndev->name));
+ 	err = brcmf_net_attach(ifp, true);
+ 	if (err) {
+@@ -875,6 +901,8 @@ struct wireless_dev *brcmf_apsta_add_vif(struct wiphy *wiphy, const char *name,
+ 		goto fail;
+ 	}
+ 
++	brcmf_set_monitor(cfg);
++
+ 	return &ifp->vif->wdev;
+ 
+ fail:
+@@ -971,6 +999,22 @@ static int brcmf_mon_del_vif(struct wiphy *wiphy, struct wireless_dev *wdev)
+ 	return 0;
+ }
+ 
++static s32
++brcmf_cfg80211_set_monitor_channel(struct wiphy *wiphy,struct cfg80211_chan_def *chandef) {
++	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
++	struct brcmf_if *ifp = netdev_priv(cfg_to_ndev(cfg));
++	s32 err = 0;
++	u16 chanspec;
++
++	chanspec = chandef_to_chanspec(&cfg->d11inf, chandef);
++	err = brcmf_fil_iovar_int_set(ifp, "chanspec", chanspec);
++	if (err < 0) {
++		brcmf_err("Set Channel failed: chspec=%d, %d\n",
++		chanspec, err);
++	}
++	return 0;
++}
++
+ static struct wireless_dev *brcmf_cfg80211_add_iface(struct wiphy *wiphy,
+ 						     const char *name,
+ 						     unsigned char name_assign_type,
+@@ -995,7 +1039,6 @@ static struct wireless_dev *brcmf_cfg80211_add_iface(struct wiphy *wiphy,
+ 	case NL80211_IFTYPE_MESH_POINT:
+ 		return ERR_PTR(-EOPNOTSUPP);
+ 	case NL80211_IFTYPE_MONITOR:
+-		return brcmf_mon_add_vif(wiphy, name);
+ 	case NL80211_IFTYPE_STATION:
+ 	case NL80211_IFTYPE_AP:
+ 		wdev = brcmf_apsta_add_vif(wiphy, name, params, type);
+@@ -1305,7 +1348,6 @@ int brcmf_cfg80211_del_iface(struct wiphy *wiphy, struct wireless_dev *wdev)
+ 	case NL80211_IFTYPE_MESH_POINT:
+ 		return -EOPNOTSUPP;
+ 	case NL80211_IFTYPE_MONITOR:
+-		return brcmf_mon_del_vif(wiphy, wdev);
+ 	case NL80211_IFTYPE_STATION:
+ 	case NL80211_IFTYPE_AP:
+ 		return brcmf_cfg80211_del_apsta_iface(wiphy, wdev);
+@@ -1329,6 +1371,7 @@ brcmf_cfg80211_change_iface(struct wiphy *wiphy, struct net_device *ndev,
+ 	struct brcmf_if *ifp = netdev_priv(ndev);
+ 	struct brcmf_cfg80211_vif *vif = ifp->vif;
+ 	struct brcmf_pub *drvr = cfg->pub;
++	s32 monitor = 0;
+ 	s32 infra = 0;
+ 	s32 ap = 0;
+ 	s32 err = 0;
+@@ -1373,6 +1416,8 @@ brcmf_cfg80211_change_iface(struct wiphy *wiphy, struct net_device *ndev,
+ 	}
+ 	switch (type) {
+ 	case NL80211_IFTYPE_MONITOR:
++		monitor = 1;
++		break;
+ 	case NL80211_IFTYPE_WDS:
+ 		bphy_err(drvr, "type (%d) : currently we do not support this type\n",
+ 			 type);
+@@ -1407,11 +1452,20 @@ brcmf_cfg80211_change_iface(struct wiphy *wiphy, struct net_device *ndev,
+ 			err = -EAGAIN;
+ 			goto done;
+ 		}
+-		brcmf_dbg(INFO, "IF Type = %s\n", brcmf_is_ibssmode(vif) ?
+-			  "Adhoc" : "Infra");
++		if (!monitor)
++			brcmf_dbg(INFO, "IF Type = %s\n",
++			          brcmf_is_ibssmode(vif) ? "Adhoc" : "Infra");
++
+ 	}
+ 	ndev->ieee80211_ptr->iftype = type;
+ 
++	if (monitor)
++		ndev->type = ARPHRD_IEEE80211_RADIOTAP;
++	else
++		ndev->type = ARPHRD_ETHER;
++
++	brcmf_set_monitor(cfg);
++
+ 	brcmf_cfg80211_update_proto_addr_mode(&vif->wdev);
+ 
+ done:
+@@ -5969,6 +6023,7 @@ static struct cfg80211_ops brcmf_cfg80211_ops = {
+ 	.update_connect_params = brcmf_cfg80211_update_conn_params,
+ 	.set_pmk = brcmf_cfg80211_set_pmk,
+ 	.del_pmk = brcmf_cfg80211_del_pmk,
++	.set_monitor_channel = brcmf_cfg80211_set_monitor_channel,
+ };
+ 
+ struct cfg80211_ops *brcmf_cfg80211_get_ops(struct brcmf_mp_device *settings)
+@@ -6028,13 +6083,17 @@ void brcmf_free_vif(struct brcmf_cfg80211_vif *vif)
+ void brcmf_cfg80211_free_netdev(struct net_device *ndev)
+ {
+ 	struct brcmf_cfg80211_vif *vif;
++	struct brcmf_cfg80211_info *cfg;
+ 	struct brcmf_if *ifp;
+ 
+ 	ifp = netdev_priv(ndev);
++	cfg = ifp->drvr->config;
+ 	vif = ifp->vif;
+ 
+ 	if (vif)
+ 		brcmf_free_vif(vif);
++
++	brcmf_set_monitor(cfg);
+ }
+ 
+ static bool brcmf_is_linkup(struct brcmf_cfg80211_vif *vif,
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
+index bf91b1e1368f..335f823cb1d1 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
+@@ -29,6 +29,10 @@
+ #include "proto.h"
+ #include "pcie.h"
+ #include "common.h"
++/* NEXMON */
++#include <linux/if_arp.h>
++#include <linux/netlink.h>
++#include "nexmon_ioctls.h"
+ 
+ #define MAX_WAIT_FOR_8021X_TX			msecs_to_jiffies(950)
+ 
+@@ -38,6 +42,34 @@
+ 
+ #define	D11_PHY_HDR_LEN				6
+ 
++/* NEXMON */
++#define NETLINK_USER				31
++#define NEXUDP_IOCTL				0
++
++#define MONITOR_DISABLED			0
++#define MONITOR_IEEE80211			1
++#define MONITOR_RADIOTAP			2
++#define MONITOR_LOG_ONLY			3
++#define MONITOR_DROP_FRM			4
++#define MONITOR_IPV4_UDP			5
++
++static struct netlink_kernel_cfg cfg = {0};
++static struct sock *nl_sock = NULL;
++static struct net_device *ndev_global = NULL;
++
++struct nexudp_header {
++	char nex[3];
++	char type;
++	int securitycookie;
++} __packed;
++
++struct nexudp_ioctl_header {
++	struct nexudp_header nexudphdr;
++	unsigned int cmd;
++	unsigned int set;
++	char payload[1];
++} __packed;
++
+ struct d11rxhdr_le {
+ 	__le16 RxFrameSize;
+ 	u16 PAD;
+@@ -64,6 +96,80 @@ struct wlc_d11rxhdr {
+ 	s8 rxpwr[4];
+ } __packed;
+ 
++/* MEXMON */
++static void
++nexmon_nl_ioctl_handler(struct sk_buff *skb)
++{
++	struct nlmsghdr *nlh = (struct nlmsghdr *) skb->data;
++	struct nexudp_ioctl_header *frame = (struct nexudp_ioctl_header *) nlmsg_data(nlh);
++	struct brcmf_if *ifp = netdev_priv(ndev_global);
++	struct sk_buff *skb_out;
++	struct nlmsghdr *nlh_tx;
++
++	brcmf_err("NEXMON: %s: Enter\n", __FUNCTION__);
++
++	brcmf_err("NEXMON: %s: %08x %d %d\n", __FUNCTION__, *(int *) frame->nexudphdr.nex, nlmsg_len(nlh), skb->len);
++
++	if (memcmp(frame->nexudphdr.nex, "NEX", 3)) {
++		brcmf_err("NEXMON: %s: invalid nexudp_ioctl_header\n", __FUNCTION__);
++		return;
++	}
++
++	if (frame->nexudphdr.type != NEXUDP_IOCTL) {
++		brcmf_err("NEXMON: %s: invalid frame type\n", __FUNCTION__);
++		return;
++	}
++
++	if (ifp == NULL) {
++		brcmf_err("NEXMON: %s: ifp is NULL\n", __FUNCTION__);
++		return;
++	}
++
++	if (frame->set) {
++		brcmf_err("NEXMON: %s: calling brcmf_fil_cmd_data_set, cmd: %d\n", __FUNCTION__, frame->cmd);
++		brcmf_fil_cmd_data_set(ifp, frame->cmd, frame->payload, nlmsg_len(nlh) - sizeof(struct nexudp_ioctl_header) + sizeof(char));
++
++		if (frame->cmd == BRCMF_C_SET_MONITOR) {
++			brcmf_err("NEXMON: %s: WLC_SET_MONITOR = %d\n", __FUNCTION__, *(unsigned int *) frame->payload);
++			switch(*(unsigned int *) frame->payload) {
++			case MONITOR_IEEE80211:
++				ndev_global->type = ARPHRD_IEEE80211;
++				ndev_global->ieee80211_ptr->iftype = NL80211_IFTYPE_MONITOR;
++				break;
++			case MONITOR_RADIOTAP:
++				ndev_global->type = ARPHRD_IEEE80211_RADIOTAP;
++				ndev_global->ieee80211_ptr->iftype = NL80211_IFTYPE_MONITOR;
++				break;
++			case MONITOR_DISABLED:
++			case MONITOR_LOG_ONLY:
++			case MONITOR_DROP_FRM:
++			case MONITOR_IPV4_UDP:
++			default:
++				ndev_global->type = ARPHRD_ETHER;
++				ndev_global->ieee80211_ptr->iftype = NL80211_IFTYPE_STATION;
++				break;
++			}
++		}
++
++		skb_out = nlmsg_new(4, 0);
++		nlh_tx = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, 4, 0);
++		NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
++		memcpy(nlmsg_data(nlh_tx), "ACK", 4);
++		nlmsg_unicast(nl_sock, skb_out, nlh->nlmsg_pid);
++	} else {
++		brcmf_err("NEXMON: %s: calling brcmf_fil_cmd_data_get, cmd: %d\n", __FUNCTION__, frame->cmd);
++		brcmf_fil_cmd_data_get(ifp, frame->cmd, frame->payload, nlmsg_len(nlh) - sizeof(struct nexudp_ioctl_header) + sizeof(char));
++
++		skb_out = nlmsg_new(nlmsg_len(nlh), 0);
++		nlh_tx = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, nlmsg_len(nlh), 0);
++		NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
++		memcpy(nlmsg_data(nlh_tx), frame, nlmsg_len(nlh));
++		nlmsg_unicast(nl_sock, skb_out, nlh->nlmsg_pid);
++	}
++
++	brcmf_err("NEXMON: %s: Exit\n", __FUNCTION__);
++}
++
+ char *brcmf_ifname(struct brcmf_if *ifp)
+ {
+ 	if (!ifp)
+@@ -618,7 +724,11 @@ static int brcmf_netdev_open(struct net_device *ndev)
+ 	}
+ 
+ 	/* Clear, carrier, set when connected or AP mode. */
+-	netif_carrier_off(ndev);
++	if (ndev->type == ARPHRD_IEEE80211_RADIOTAP)
++		netif_carrier_on(ndev);
++	else
++		netif_carrier_off(ndev);
++
+ 	return 0;
+ }
+ 
+@@ -639,6 +749,9 @@ int brcmf_net_attach(struct brcmf_if *ifp, bool locked)
+ 	brcmf_dbg(TRACE, "Enter, bsscfgidx=%d mac=%pM\n", ifp->bsscfgidx,
+ 		  ifp->mac_addr);
+ 	ndev = ifp->ndev;
++	/* NEXMON */
++	if (!ndev_global)
++		ndev_global = ndev;
+ 
+ 	/* set appropriate operations */
+ 	ndev->netdev_ops = &brcmf_netdev_ops_pri;
+@@ -685,6 +798,10 @@ void brcmf_net_detach(struct net_device *ndev, bool locked)
+ 		brcmf_cfg80211_free_netdev(ndev);
+ 		free_netdev(ndev);
+ 	}
++
++	/* NEXMON */
++	if (ndev == ndev_global)
++		ndev_global = NULL;
+ }
+ 
+ static int brcmf_net_mon_open(struct net_device *ndev)
+@@ -1547,6 +1664,14 @@ int __init brcmf_core_init(void)
+ 	err = brcmf_pcie_register();
+ 	if (err)
+ 		goto error_pcie_register;
++
++	/* NEXMON netlink init */
++	cfg.input = nexmon_nl_ioctl_handler;
++	nl_sock = netlink_kernel_create(&init_net, NETLINK_USER, &cfg);
++	if (!nl_sock) {
++		brcmf_err("NEXMON: %s: Error creating netlink socket\n", __FUNCTION__);
++	}
++
+ 	return 0;
+ 
+ error_pcie_register:
+@@ -1558,6 +1683,9 @@ int __init brcmf_core_init(void)
+ 
+ void __exit brcmf_core_exit(void)
+ {
++	/* NEXMON netlink release */
++	netlink_kernel_release(nl_sock);
++
+ 	brcmf_sdio_exit();
+ 	brcmf_usb_exit();
+ 	brcmf_pcie_exit();
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+index f23310a77a5d..b07604466d79 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+@@ -117,6 +117,8 @@ static void brcmf_feat_firmware_overrides(struct brcmf_pub *drv)
+ 		}
+ 	}
+ 
++	feat_flags |= BIT(BRCMF_FEAT_MONITOR_FLAG);
++
+ 	if (!feat_flags)
+ 		return;
+ 
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/nexmon_ioctls.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/nexmon_ioctls.h
+new file mode 100644
+index 000000000000..2d7d0dadba06
+--- /dev/null
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/nexmon_ioctls.h
+@@ -0,0 +1,15 @@
++#ifndef NEXMON_IOCTLS_H
++#define NEXMON_IOCTLS_H
++
++/* see include/dhdioctl.h in bcmdhd driver */
++typedef struct nex_ioctl {
++	uint cmd;       /* common ioctl definition */
++	void *buf;      /* pointer to user buffer */
++	uint len;       /* length of user buffer */
++	bool set;       /* get or set request (optional) */
++	uint used;      /* bytes read or written (optional) */
++	uint needed;    /* bytes needed (optional) */
++	uint driver;    /* to identify target driver */
++} nex_ioctl_t;
++
++#endif /* NEXMON_IOCTLS_H */
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+index 1461dc453ac2..ea6c14cc490f 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+@@ -66,7 +66,7 @@
+ #define CBUF_LEN	(128)
+ 
+ /* Device console log buffer state */
+-#define CONSOLE_BUFFER_MAX	2024
++#define CONSOLE_BUFFER_MAX	4096
+ 
+ struct rte_log_le {
+ 	__le32 buf;		/* Can't be pointer on (64-bit) hosts */
